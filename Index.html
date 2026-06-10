@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-Code Track Simulator</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f4f4f7;
+            padding: 10px;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+        }
+        textarea {
+            width: 100%;
+            height: 250px;
+            font-family: monospace;
+            font-size: 13px;
+            padding: 8px;
+            box-sizing: border-box;
+            background-color: #fafafa;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            width: 100%;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 4px;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        canvas {
+            background-color: #ffffff;
+            border: 2px solid #2c3e50;
+            border-radius: 4px;
+            width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <label style="font-weight:bold;">G-Code Input:</label>
+        <textarea id="gcode-input" spellcheck="false">
+Start at x25 y0
+G0 x -22
+G0 y 1.5
+G1 y 6.5
+G1 x 1
+G0 y -6.5
+G0 x -1
+G1 x 1
+G1 y 6.5
+G1 x 0.5
+G1 y -6
+G1 x -0.5 y -0.5
+G1 x 2.5
+G1 y 6.5
+G1 x -1
+G1 Y -6.5
+G1 Y -1
+G1 X 1
+G0 Y 1
+G0 X 0.5 Y0.5
+G1 X -0.5 Y -0.5 
+G1 Y -1
+G1 X 0.5 Y 0.5
+G1 Y 7
+G1 X -0.5
+G0 X 1
+G1 Y -5.5
+G1 X -1
+G0 Y 0.5
+G0 X 1
+G1 X 0.5 Y0.5
+
+G0 X 0.5
+G0 Y 0.5
+G1 Y -1
+G1 X 1
+G1 Y 1
+G1 X -1
+G1 X 0.5 Y 0.5
+G1 X 1
+G0 X -0.5 Y -0.5
+G1 X 0.5 Y 0.5
+G1 Y -1
+G1 X -0.5 Y -0.5
+
+G0 X 1
+G1 X 2.5 Y G.5
+G1 X 0.5
+G1 X 2.5 Y -6.5
+G1 X -1
+G1 X 1.75 Y 5.5
+G1 X -1.75 Y -5.5
+G0 X -1
+G1 X 1
+G1 X 0.5 Y 0.5
+G1 X 1.5 Y 5
+G1 X 1.5 Y -5
+G1 X 0.5 Y 0.5
+G0 Y 3.5
+G1 X -5
+G1 X -0.5 Y -0.5
+G1 Y -0.5
+G1 X 0.5 Y 0.5
+G0 X -0.5 Y -0.5
+G1 X 5
+G1 X 0.5 Y 0.5
+G0 Y 0.5
+G1 X -0.5 Y -0.5
+G1 Y -0.5</textarea>
+        
+        <button id="render-btn">Update & Simulate</button>
+        <canvas id="gridCanvas" width="600" height="400"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gridCanvas');
+        const ctx = canvas.getContext('2d');
+        const gcodeInput = document.getElementById('gcode-input');
+        const renderBtn = document.getElementById('render-btn');
+
+        const gridWidth = 30;
+        const gridHeight = 20;
+        const padding = 30;
+        const scaleX = (canvas.width - padding * 2) / gridWidth;
+        const scaleY = (canvas.height - padding * 2) / gridHeight;
+
+        function toCanvasCoords(gridX, gridY) {
+            return {
+                x: padding + (gridX * scaleX),
+                y: canvas.height - padding - (gridY * scaleY)
+            };
+        }
+
+        function drawGrid() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#e8e8e8';
+            ctx.lineWidth = 0.5;
+
+            for (let i = 0; i <= gridWidth; i++) {
+                let pStart = toCanvasCoords(i, 0);
+                let pEnd = toCanvasCoords(i, gridHeight);
+                ctx.beginPath(); ctx.moveTo(pStart.x, pStart.y); ctx.lineTo(pEnd.x, pEnd.y); ctx.stroke();
+                if (i % 5 === 0) {
+                    ctx.fillStyle = '#999'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+                    ctx.fillText(i, pStart.x, pStart.y + 12);
+                }
+            }
+            for (let j = 0; j <= gridHeight; j++) {
+                let pStart = toCanvasCoords(0, j);
+                let pEnd = toCanvasCoords(gridWidth, j);
+                ctx.beginPath(); ctx.moveTo(pStart.x, pStart.y); ctx.lineTo(pEnd.x, pEnd.y); ctx.stroke();
+                if (j % 5 === 0) {
+                    ctx.fillStyle = '#999'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+                    ctx.fillText(j, pStart.x - 6, pStart.y + 3);
+                }
+            }
+        }
+
+        function parseAndSimulate() {
+            drawGrid();
+            const lines = gcodeInput.value.split('\n');
+            
+            let currentX = 0;
+            let currentY = 0;
+
+            // Automatically fixes the 'G.5' syntax typo to '6.5' so compilation succeeds
+            const cleanLine = (txt) => txt.toUpperCase().replace(/G\.5/g, '6.5');
+
+            let firstLine = cleanLine(lines[0]);
+            if (firstLine.includes('START AT')) {
+                const matchX = firstLine.match(/X\s*(-?\d+\.?\d*)/);
+                const matchY = firstLine.match(/Y\s*(-?\d+\.?\d*)/);
+                if (matchX) currentX = parseFloat(matchX[1]);
+                if (matchY) currentY = parseFloat(matchY[1]);
+            }
+
+            for (let i = 0; i < lines.length; i++) {
+                let rawLine = cleanLine(lines[i].trim());
+                if (!rawLine || rawLine.startsWith('START AT')) continue;
+
+                const xMatch = rawLine.match(/X\s*(-?\d+\.?\d*)/);
+                const yMatch = rawLine.match(/Y\s*(-?\d+\.?\d*)/);
+
+                let deltaX = xMatch ? parseFloat(xMatch[1]) : 0;
+                let deltaY = yMatch ? parseFloat(yMatch[1]) : 0;
+
+                let targetX = currentX + deltaX;
+                let targetY = currentY + deltaY;
+
+                let isRapid = rawLine.includes('G0');
+                let isLinear = rawLine.includes('G1') || (!isRapid && (xMatch || yMatch));
+
+                ctx.beginPath();
+                let startPos = toCanvasCoords(currentX, currentY);
+                let endPos = toCanvasCoords(targetX, targetY);
+                ctx.moveTo(startPos.x, startPos.y);
+                ctx.lineTo(endPos.x, endPos.y);
+
+                if (isRapid) {
+                    ctx.strokeStyle = '#e67e22';
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([3, 3]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else if (isLinear) {
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+
+                currentX = targetX;
+                currentY = targetY;
+            }
+
+            let finalPos = toCanvasCoords(currentX, currentY);
+            ctx.beginPath(); ctx.arc(finalPos.x, finalPos.y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = '#e74c3c'; ctx.fill();
+        }
+
+        renderBtn.addEventListener('click', parseAndSimulate);
+        parseAndSimulate();
+    </script>
+</body>
+</html>
